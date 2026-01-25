@@ -28,6 +28,7 @@ action code {:
     
     String currentScope = "Global"; // Ámbito actual
     ArrayList<String> scopeStack = new ArrayList<String>(); // Pila de ámbitos
+    int blockCounter = 0; // Contador para bloques anidados
 
     // Método para agregar un símbolo a la tabla del ámbito actual
     public void agregarSimbolo(String nombre, String tipo, String rol) {
@@ -155,7 +156,9 @@ non terminal listaInstr;
 non terminal instruccion;
 non terminal declaracionVariable;
 non terminal declaracionArray;
+non terminal arrayDimensions;
 non terminal arrayInit;
+non terminal arrayInitList;
 non terminal decide;
 non terminal condicionesDecide;
 non terminal condicionDecide;
@@ -166,6 +169,7 @@ non terminal usoArray;
 non terminal llamadaFuncion;
 non terminal arrayValues;
 non terminal listaArgumentos;
+non terminal getStatement;
 
 precedence left ASSIGN;
 precedence left OR;
@@ -209,7 +213,7 @@ globales ::= {:
           :}
           ;
 
-navidad ::= COAL NAVIDAD LPAREN RPAREN LBRACKET listaInstr:li RETURN expression:e ENDL RBRACKET {:
+navidad ::= COAL NAVIDAD LPAREN RPAREN {: currentScope = "navidad"; :} LBRACKET listaInstr:li RETURN expression:e ENDL RBRACKET {:
                 NodoArbol result = new NodoArbol("navidad");
                 result.agregarHijo(new NodoArbol("COAL"));
                 result.agregarHijo(new NodoArbol("NAVIDAD"));
@@ -221,6 +225,7 @@ navidad ::= COAL NAVIDAD LPAREN RPAREN LBRACKET listaInstr:li RETURN expression:
                 result.agregarHijo((NodoArbol)e);
                 result.agregarHijo(new NodoArbol("ENDL"));
                 result.agregarHijo(new NodoArbol("RBRACKET"));
+                currentScope = "Global";
                 RESULT = result;
           :};
 
@@ -274,16 +279,11 @@ listaParametros ::= tipo:ti IDENTIFIER:id {:
                 agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Parametro");
                 RESULT = result;
               :}
-            | tipo:ti IDENTIFIER:id DECLBRACKETL INTEGER_LITERAL:i1 DECLBRACKETR DECLBRACKETL INTEGER_LITERAL:i2 DECLBRACKETR {:
+            | tipo:ti IDENTIFIER:id arrayDimensions:ad {:
                 NodoArbol result = new NodoArbol("listaParametros");
                 result.agregarHijo((NodoArbol)ti);
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i1.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i2.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                result.agregarHijo((NodoArbol)ad);
                 agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Parametro Array");
                 RESULT = result;
               :}
@@ -296,24 +296,36 @@ listaParametros ::= tipo:ti IDENTIFIER:id {:
                 agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Parametro");
                 RESULT = result;
               :}
-            | listaParametros:lp COMMA tipo:ti IDENTIFIER:id DECLBRACKETL INTEGER_LITERAL:i1 DECLBRACKETR DECLBRACKETL INTEGER_LITERAL:i2 DECLBRACKETR {:
+            | listaParametros:lp COMMA tipo:ti IDENTIFIER:id arrayDimensions:ad {:
                 NodoArbol result = new NodoArbol("listaParametros");
                 result.agregarHijo((NodoArbol)lp);
                 result.agregarHijo(new NodoArbol("COMMA"));
                 result.agregarHijo((NodoArbol)ti);
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i1.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i2.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                result.agregarHijo((NodoArbol)ad);
                 agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Parametro Array");
                 RESULT = result;
               :}
             ;
 
-tipo ::= INT {: 
+arrayDimensions ::= DECLBRACKETL INTEGER_LITERAL:i DECLBRACKETR {:
+                NodoArbol result = new NodoArbol("arrayDimensions");
+                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
+                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i.toString()));
+                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                RESULT = result;
+              :}
+            | arrayDimensions:ad DECLBRACKETL INTEGER_LITERAL:i DECLBRACKETR {:
+                NodoArbol result = new NodoArbol("arrayDimensions");
+                result.agregarHijo((NodoArbol)ad);
+                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
+                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i.toString()));
+                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                RESULT = result;
+              :}
+            ;
+
+tipo ::= INT {:
                 NodoArbol result = new NodoArbol("INT");
                 result.setLexema("int");
                 RESULT = result; 
@@ -345,11 +357,20 @@ tipo ::= INT {:
             :}
        ;
 
-bloque ::= LBRACKET listaInstr:li RBRACKET {:
+bloque ::= LBRACKET {: 
+                // Guardar el scope actual en la pila
+                scopeStack.add(currentScope);
+                // Crear un nuevo scope para el bloque
+                currentScope = currentScope + "_block_" + blockCounter++;
+            :} listaInstr:li RBRACKET {:
                 NodoArbol result = new NodoArbol("bloque");
                 result.agregarHijo(new NodoArbol("LBRACKET"));
                 result.agregarHijo((NodoArbol)li);
                 result.agregarHijo(new NodoArbol("RBRACKET"));
+                // Restaurar el scope anterior de la pila
+                if (!scopeStack.isEmpty()) {
+                    currentScope = scopeStack.remove(scopeStack.size() - 1);
+                }
                 RESULT = result;
           :};
 
@@ -389,6 +410,12 @@ instruccion ::= declaracionVariable:dv ENDL {:
                 NodoArbol result = new NodoArbol("instruccion_show");
                 result.agregarHijo(new NodoArbol("SHOW"));
                 result.agregarHijo((NodoArbol)e);
+                result.agregarHijo(new NodoArbol("ENDL"));
+                RESULT = result;
+              :}
+            | getStatement:gs ENDL {:
+                NodoArbol result = new NodoArbol("instruccion_read");
+                result.agregarHijo((NodoArbol)gs);
                 result.agregarHijo(new NodoArbol("ENDL"));
                 RESULT = result;
               :}
@@ -448,31 +475,21 @@ declaracionVariable ::= LOCAL tipo:t IDENTIFIER:id {:
               :}
             ;
 
-declaracionArray ::= LOCAL tipo:t IDENTIFIER:id DECLBRACKETL INTEGER_LITERAL:i1 DECLBRACKETR DECLBRACKETL INTEGER_LITERAL:i2 DECLBRACKETR {:
-                NodoArbol result = new NodoArbol("declaracionArray_local_2d");
+declaracionArray ::= LOCAL tipo:t IDENTIFIER:id arrayDimensions:ad {:
+                NodoArbol result = new NodoArbol("declaracionArray_local");
                 result.agregarHijo(new NodoArbol("LOCAL"));
                 result.agregarHijo((NodoArbol)t);
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i1.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i2.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                result.agregarHijo((NodoArbol)ad);
                 agregarSimbolo(id.toString(), ((NodoArbol)t).getLexema(), "Array Local");
                 RESULT = result;
               :}
-            | LOCAL tipo:t IDENTIFIER:id DECLBRACKETL INTEGER_LITERAL:i1 DECLBRACKETR DECLBRACKETL INTEGER_LITERAL:i2 DECLBRACKETR ASSIGN arrayInit:ai {:
-                NodoArbol result = new NodoArbol("declaracionArray_local_2d_init");
+            | LOCAL tipo:t IDENTIFIER:id arrayDimensions:ad ASSIGN arrayInit:ai {:
+                NodoArbol result = new NodoArbol("declaracionArray_local_init");
                 result.agregarHijo(new NodoArbol("LOCAL"));
                 result.agregarHijo((NodoArbol)t);
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i1.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
-                result.agregarHijo(new NodoArbol("DECLBRACKETL"));
-                result.agregarHijo(new NodoArbol("INTEGER_LITERAL", i2.toString()));
-                result.agregarHijo(new NodoArbol("DECLBRACKETR"));
+                result.agregarHijo((NodoArbol)ad);
                 result.agregarHijo(new NodoArbol("ASSIGN"));
                 result.agregarHijo((NodoArbol)ai);
                 agregarSimbolo(id.toString(), ((NodoArbol)t).getLexema(), "Array Local");
@@ -492,20 +509,37 @@ arrayValues ::= expression:e {:
                 RESULT = result;
               :}
             ;
-arrayInit ::= LBRACKET LBRACKET arrayValues:av1 RBRACKET COMMA LBRACKET arrayValues:av2 RBRACKET RBRACKET {:
-                NodoArbol result = new NodoArbol("arrayInit_2d");
-                result.agregarHijo(new NodoArbol("LBRACKET"));
-                result.agregarHijo(new NodoArbol("LBRACKET"));
-                result.agregarHijo((NodoArbol)av1);
-                result.agregarHijo(new NodoArbol("RBRACKET"));
+
+arrayInitList ::= arrayInit:ai {:
+                NodoArbol result = new NodoArbol("arrayInitList");
+                result.agregarHijo((NodoArbol)ai);
+                RESULT = result;
+              :}
+            | arrayInitList:ail COMMA arrayInit:ai {:
+                NodoArbol result = new NodoArbol("arrayInitList");
+                result.agregarHijo((NodoArbol)ail);
                 result.agregarHijo(new NodoArbol("COMMA"));
+                result.agregarHijo((NodoArbol)ai);
+                RESULT = result;
+              :}
+            ;
+
+arrayInit ::= LBRACKET arrayValues:av RBRACKET {:
+                NodoArbol result = new NodoArbol("arrayInit");
                 result.agregarHijo(new NodoArbol("LBRACKET"));
-                result.agregarHijo((NodoArbol)av2);
+                result.agregarHijo((NodoArbol)av);
                 result.agregarHijo(new NodoArbol("RBRACKET"));
+                RESULT = result;
+              :}
+            | LBRACKET arrayInitList:ail RBRACKET {:
+                NodoArbol result = new NodoArbol("arrayInit");
+                result.agregarHijo(new NodoArbol("LBRACKET"));
+                result.agregarHijo((NodoArbol)ail);
                 result.agregarHijo(new NodoArbol("RBRACKET"));
                 RESULT = result;
               :}
             ;
+
 decide ::= DECIDE OF condicionesDecide:cd END DECIDE {:
                 NodoArbol result = new NodoArbol("decide");
                 result.agregarHijo(new NodoArbol("DECIDE"));
@@ -561,6 +595,18 @@ loop ::= LOOP listaInstr:li EXIT WHEN expression:e ENDL END LOOP ENDL {:
           :};
 
 for_stmt ::= FOR LPAREN declaracionVariable:e1 ENDL expression:e2 ENDL expression:e3 RPAREN bloque:b {:
+                NodoArbol result = new NodoArbol("for_stmt");
+                result.agregarHijo(new NodoArbol("FOR"));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                result.agregarHijo((NodoArbol)e1);
+                result.agregarHijo((NodoArbol)e2);
+                result.agregarHijo(new NodoArbol("ENDL"));
+                result.agregarHijo((NodoArbol)e3);
+                result.agregarHijo(new NodoArbol("RPAREN"));
+                result.agregarHijo((NodoArbol)b);
+                RESULT = result;
+          :}
+         | FOR LPAREN expression:e1 ENDL expression:e2 ENDL expression:e3 RPAREN bloque:b {:
                 NodoArbol result = new NodoArbol("for_stmt");
                 result.agregarHijo(new NodoArbol("FOR"));
                 result.agregarHijo(new NodoArbol("LPAREN"));
@@ -699,10 +745,14 @@ expression ::= expression:e1 PLUS expression:e2 {:
                 result.agregarHijo(hijoExpr);
                 RESULT = result;
             :}
-            | MINUS expression:e1 {:
-                NodoArbol hijoExpr = (NodoArbol)e1;
+            | MINUS INTEGER_LITERAL:e1 {:
                 NodoArbol result = new NodoArbol("MINUS");
-                result.agregarHijo(hijoExpr);
+                result.agregarHijo(new NodoArbol("int_literal", e1.toString()));
+                RESULT = result;
+            :}
+            | MINUS FLOAT_LITERAL:e1 {:
+                NodoArbol result = new NodoArbol("MINUS");
+                result.agregarHijo(new NodoArbol("float_literal", e1.toString()));
                 RESULT = result;
             :}
             | INC IDENTIFIER:id {:
@@ -719,6 +769,13 @@ expression ::= expression:e1 PLUS expression:e2 {:
                 NodoArbol result = new NodoArbol("=");
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
                 result.agregarHijo((NodoArbol)e2);
+                RESULT = result;
+            :}
+            | usoArray:ua ASSIGN expression:e {:
+                NodoArbol result = new NodoArbol("array_assign");
+                result.agregarHijo((NodoArbol)ua);
+                result.agregarHijo(new NodoArbol("ASSIGN"));
+                result.agregarHijo((NodoArbol)e);
                 RESULT = result;
             :}
             | LPAREN expression:e1 RPAREN {:
@@ -754,10 +811,17 @@ expression ::= expression:e1 PLUS expression:e2 {:
             :}
             | usoArray
             | llamadaFuncion
+            | GET LPAREN RPAREN {:
+                NodoArbol result = new NodoArbol("read_expression");
+                result.agregarHijo(new NodoArbol("GET"));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                result.agregarHijo(new NodoArbol("RPAREN"));
+                RESULT = result;
+            :}
             ;
 
 usoArray ::= IDENTIFIER:id DECLBRACKETL expression:expr1 DECLBRACKETR DECLBRACKETL expression:expr2 DECLBRACKETR {:
-                NodoArbol result = new NodoArbol("array_access_2d");
+                NodoArbol result = new NodoArbol("array_access");
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
                 result.agregarHijo(new NodoArbol("DECLBRACKETL"));
                 result.agregarHijo((NodoArbol)expr1);
@@ -768,7 +832,14 @@ usoArray ::= IDENTIFIER:id DECLBRACKETL expression:expr1 DECLBRACKETR DECLBRACKE
                 RESULT = result;
             :};
 
-llamadaFuncion ::= IDENTIFIER:id LPAREN listaArgumentos:args RPAREN {:
+llamadaFuncion ::= IDENTIFIER:id LPAREN RPAREN {:
+                NodoArbol result = new NodoArbol("function_call");
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                result.agregarHijo(new NodoArbol("RPAREN"));
+                RESULT = result;
+            :}
+            | IDENTIFIER:id LPAREN listaArgumentos:args RPAREN {:
                 NodoArbol result = new NodoArbol("function_call");
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
                 result.agregarHijo(new NodoArbol("LPAREN"));
@@ -789,6 +860,16 @@ listaArgumentos ::= expression:expr {:
                 result.agregarHijo((NodoArbol)args);
                 result.agregarHijo(new NodoArbol("COMMA"));
                 result.agregarHijo((NodoArbol)expr);
+                RESULT = result;
+            :}
+            ;
+
+getStatement ::= GET LPAREN IDENTIFIER:id RPAREN {:
+                NodoArbol result = new NodoArbol("get_statement");
+                result.agregarHijo(new NodoArbol("GET"));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("RPAREN"));
                 RESULT = result;
             :}
             ;
