@@ -3,32 +3,11 @@ import java.util.HashMap;
 import java.util.ArrayList;
 
 action code {:
-    // Clase interna para representar un símbolo
-    class Simbolo {
-        String nombre;
-        String tipo;
-        String rol;
-        String ambito;
-
-        public Simbolo(String nombre, String tipo, String rol, String ambito) {
-            this.nombre = nombre;
-            this.tipo = tipo;
-            this.rol = rol;
-            this.ambito = ambito;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("%-15s %-15s %-15s %-15s", nombre, tipo, rol, ambito);
-        }
-    }
-
     // Tabla de símbolos: Key = Nombre del ámbito, Value = Lista de símbolos en ese ámbito
     HashMap<String, ArrayList<Simbolo>> listaTablasSimbolos = new HashMap<String, ArrayList<Simbolo>>();
     
     String currentScope = "Global"; // Ámbito actual
-    ArrayList<String> scopeStack = new ArrayList<String>(); // Pila de ámbitos
-    int blockCounter = 0; // Contador para bloques anidados
+    ArrayList<String> scopeStack = new ArrayList<String>();
 
     // Método para agregar un símbolo a la tabla del ámbito actual
     public void agregarSimbolo(String nombre, String tipo, String rol) {
@@ -81,6 +60,10 @@ action code {:
         sb.append("==========================\n\n");
         return sb.toString();
     }
+
+    public HashMap<String, ArrayList<Simbolo>> getListaTablasSimbolos() {
+        return listaTablasSimbolos;
+    }
 :};
 
 parser code {:
@@ -96,6 +79,10 @@ parser code {:
 
     public String obtenerTablaSimbolosString() {
         return action_obj.obtenerTablaSimbolosString();
+    }
+
+    public HashMap<String, ArrayList<Simbolo>> getTablaSimbolos() {
+        return action_obj.getListaTablasSimbolos();
     }
 
     /* Sobreescribir el manejo de errores para mostrar mensajes más detallados */
@@ -242,7 +229,10 @@ funciones ::= funcion:f {:
               :}
             ;
 
-funcion ::= GIFT tipo:t IDENTIFIER:id {: currentScope = id.toString(); :} LPAREN parametros:p RPAREN bloque:b {:
+funcion ::= GIFT tipo:t IDENTIFIER:id {: 
+                agregarSimbolo(id.toString(), ((NodoArbol)t).getLexema(), "Funcion");
+                currentScope = id.toString(); 
+              :} LPAREN parametros:p RPAREN bloque:b {:
                 NodoArbol result = new NodoArbol("funcion");
                 result.agregarHijo(new NodoArbol("GIFT"));
                 result.agregarHijo((NodoArbol)t);
@@ -357,20 +347,11 @@ tipo ::= INT {:
             :}
        ;
 
-bloque ::= LBRACKET {: 
-                // Guardar el scope actual en la pila
-                scopeStack.add(currentScope);
-                // Crear un nuevo scope para el bloque
-                currentScope = currentScope + "_block_" + blockCounter++;
-            :} listaInstr:li RBRACKET {:
+bloque ::= LBRACKET listaInstr:li RBRACKET {:
                 NodoArbol result = new NodoArbol("bloque");
                 result.agregarHijo(new NodoArbol("LBRACKET"));
                 result.agregarHijo((NodoArbol)li);
                 result.agregarHijo(new NodoArbol("RBRACKET"));
-                // Restaurar el scope anterior de la pila
-                if (!scopeStack.isEmpty()) {
-                    currentScope = scopeStack.remove(scopeStack.size() - 1);
-                }
                 RESULT = result;
           :};
 

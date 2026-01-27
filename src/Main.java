@@ -42,6 +42,11 @@ public class Main {
                 System.out.println(arbolContent);
                 guardarEnArchivo("arbol.txt", arbolContent);
                 System.out.println("Árbol sintáctico guardado en: arbol.txt");
+
+                // 7. Análisis Semántico
+                AnalizadorSemantico semantico = new AnalizadorSemantico(raiz, p.getTablaSimbolos());
+                semantico.analizar();
+                
             } else {
                 System.out.println("Nota: El resultado del parser no es un NodoArbol (es null o de otro tipo).");
             }

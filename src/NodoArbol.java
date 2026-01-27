@@ -10,10 +10,10 @@ public class NodoArbol {
     this.hijos = new ArrayList<NodoArbol>();
     this.lexema = "";
   }
-  public NodoArbol(String lexema) {
-    this.tipo = "";
+  public NodoArbol(String tipo) {
+    this.tipo = tipo;
     this.hijos = new ArrayList<NodoArbol>();
-    this.lexema = lexema;
+    this.lexema = "";
   }
   public NodoArbol(String tipo, String lexema) {
     this.tipo = tipo;
