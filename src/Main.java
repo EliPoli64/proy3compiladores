@@ -46,6 +46,13 @@ public class Main {
                 // 7. Análisis Semántico
                 AnalizadorSemantico semantico = new AnalizadorSemantico(raiz, p.getTablaSimbolos());
                 semantico.analizar();
+
+                // Generar 3D
+                GeneradorCodigo3D generador = new GeneradorCodigo3D();
+                String codigo3D = generador.generar(raiz);
+                System.out.println("\nCódigo 3D generado:\n" + codigo3D);
+                guardarEnArchivo("codigoTresDirecciones.txt", codigo3D);
+                System.out.println("Código 3D guardado en: codigoTresDirecciones.txt");
                 
             } else {
                 System.out.println("Nota: El resultado del parser no es un NodoArbol (es null o de otro tipo).");
