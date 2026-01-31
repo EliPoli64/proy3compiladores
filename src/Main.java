@@ -53,11 +53,12 @@ public class Main {
 
                 if (!p.hayErrores()) {
                     // Generar Intermedio
-                    // GeneradorCodigoIntermedio generador = new GeneradorCodigoIntermedio();
-                    // String codigoIntermedio = generador.generar(raiz);
-                    //System.out.println("\nCódigo Intermedio generado:\n" + codigoIntermedio);
-                    //guardarEnArchivo("codigoTresDirecciones.txt", codigoIntermedio);
-                    //System.out.println("Código Intermedio guardado en: codigoTresDirecciones.txt");
+                    GeneradorCodigoIntermedio generador = new GeneradorCodigoIntermedio();
+                    String resultado = generador.generar(raiz);
+                    guardarEnArchivo(fileName + ".int", resultado);
+                    System.out.println("Código Intermedio guardado en: " + fileName + ".int");
+                    EscritorMips escritor = new EscritorMips();
+                    escritor.procesar(fileName + ".int", fileName + ".asm");
                 } else {
                     System.out.println("\nNo se generó código intermedio debido a errores semánticos.");
                 }

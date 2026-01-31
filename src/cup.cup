@@ -278,6 +278,20 @@ action code {:
             return "string";
         }
 
+        if (operador.equals("^")) {
+            if ((tipoIzq.equals("int") || tipoIzq.equals("float")) && 
+                (tipoDer.equals("int") || tipoDer.equals("float"))) {
+                if (tipoIzq.equals("int") && tipoDer.equals("int")) {
+                    return "int";
+                } else {
+                    return "float";
+                }
+            } else {
+                reportarErrorSemantico("El operador de potencia '^' solo puede aplicarse a tipos int o float, no a '" + tipoIzq + "' y '" + tipoDer + "'");
+                return "error";
+            }
+        }
+
         if (operador.equals("//")) {
             if (tipoIzq.equals("int") && tipoDer.equals("int")) {
                 return "int";
@@ -299,18 +313,20 @@ action code {:
         if (operador.equals("/")) {
             if ((tipoIzq.equals("int") || tipoIzq.equals("float")) && 
                 (tipoDer.equals("int") || tipoDer.equals("float"))) {
-                return "float"; // div normal devuelve float
+                return "float"; // resultado siempre float por si acaso
             } else {
                 reportarErrorSemantico("El operador de división flotante '/' solo puede aplicarse a tipos int o float, no a '" + tipoIzq + "' y '" + tipoDer + "'");
                 return "error";
             }
         }
+
         if ((tipoIzq.equals("int") && tipoDer.equals("int")) || 
             (tipoIzq.equals("float") && tipoDer.equals("float"))) {
             return tipoIzq;
         }
+
         if ((tipoIzq.equals("int") && tipoDer.equals("float")) || 
-            (tipoIzq.equals("float") && tipoDer.equals("int"))) {
+            (tipoDer.equals("int") && tipoIzq.equals("float"))) {
             return "float";
         }
         
@@ -330,7 +346,8 @@ action code {:
     
     private boolean esOperadorAritmetico(String tipo) {
         return tipo.equals("+") || tipo.equals("-") || tipo.equals("*") || 
-            tipo.equals("/") || tipo.equals("//") || tipo.equals("%");
+            tipo.equals("/") || tipo.equals("//") || tipo.equals("%") ||
+            tipo.equals("^");
     }
     
     private boolean esOperadorRelacional(String tipo) {
@@ -571,6 +588,18 @@ globales ::= {:
                 result.agregarHijo(new NodoArbol("WORLD"));
                 result.agregarHijo((NodoArbol)ti);
                 result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("ENDL"));
+                agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Variable Global");
+                RESULT = result;
+          :}
+          | globales:g WORLD tipo:ti IDENTIFIER:id ASSIGN expression:e1 ENDL{:
+                NodoArbol result = new NodoArbol("globales");
+                result.agregarHijo((NodoArbol)g);
+                result.agregarHijo(new NodoArbol("WORLD"));
+                result.agregarHijo((NodoArbol)ti);
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("ASSIGN"));
+                result.agregarHijo((NodoArbol)e1);
                 result.agregarHijo(new NodoArbol("ENDL"));
                 agregarSimbolo(id.toString(), ((NodoArbol)ti).getLexema(), "Variable Global");
                 RESULT = result;
