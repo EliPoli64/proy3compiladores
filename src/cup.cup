@@ -7,8 +7,10 @@ action code {:
     HashMap<String, ArrayList<Simbolo>> listaTablasSimbolos = new HashMap<String, ArrayList<Simbolo>>();
     
     String currentScope = "Global"; // Ámbito actual
+    public boolean hayErrores = false;
+    
     ArrayList<String> scopeStack = new ArrayList<String>();
-
+    
     // Método para agregar un símbolo a la tabla del ámbito actual
     public void agregarSimbolo(String nombre, String tipo, String rol) {
         if (!listaTablasSimbolos.containsKey(currentScope)) {
@@ -21,14 +23,14 @@ action code {:
         // Validacion simple de duplicados
         for(Simbolo s : simbolosScope){
             if(s.nombre.equals(nombre)){
-                System.err.println("Advertencia: Simbolo '" + nombre + "' re-declarado en ambito " + currentScope);
+                System.err.println("Error: Simbolo '" + nombre + "' re-declarado en ambito " + currentScope);
+                hayErrores = true;
                 return;
-                // O lanzar error si se desea estricto
+                
             }
         }
         
         simbolosScope.add(new Simbolo(nombre, tipo, rol, currentScope));
-        System.out.println("Simbolo agregado: " + nombre + " [" + tipo + "] (" + rol + ") en " + currentScope);
     }
 
     public void imprimirTablaSimbolos() {
@@ -71,6 +73,9 @@ parser code {:
     public parser(LexerProyUno s) {
         this.s = s;
         this.symbolFactory = new DefaultSymbolFactory();
+    }
+    public boolean hayErrores() {
+        return action_obj.hayErrores;
     }
 
     public void imprimirTablaSimbolos() {

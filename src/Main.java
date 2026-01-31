@@ -21,6 +21,12 @@ public class Main {
             
             // 3. Ejecutar el análisis (parse)
             Symbol result = p.parse();
+            if (p.hayErrores()) {
+                System.err.println("\n------------------------------------------------");
+                System.err.println("RESULTADO: El archivo NO puede ser generado por la gramática.");
+                System.err.println("------------------------------------------------");
+                return;
+            }
             
             // 4. Si llega aquí, el análisis fue exitoso
             System.out.println("\n------------------------------------------------");
@@ -28,7 +34,7 @@ public class Main {
             System.out.println("------------------------------------------------\n");
             
             // 5. Primero mostrar la Tabla de Símbolos (para que salga aunque falle el árbol)
-            p.imprimirTablaSimbolos();
+            // p.imprimirTablaSimbolos();
             
             String tablaSimbolosContent = p.obtenerTablaSimbolosString();
             guardarEnArchivo("tablaSimbolos.txt", tablaSimbolosContent);
@@ -38,8 +44,8 @@ public class Main {
             if (result.value instanceof NodoArbol) {
                 NodoArbol raiz = (NodoArbol) result.value;                
                 String arbolContent = raiz.getArbolPrettyString();
-                System.out.println("Árbol Sintáctico:");
-                System.out.println(arbolContent);
+                // System.out.println("Árbol Sintáctico:");
+                // System.out.println(arbolContent);
                 guardarEnArchivo("arbol.txt", arbolContent);
                 System.out.println("Árbol sintáctico guardado en: arbol.txt");
 
@@ -47,12 +53,17 @@ public class Main {
                 AnalizadorSemantico semantico = new AnalizadorSemantico(raiz, p.getTablaSimbolos());
                 semantico.analizar();
 
-                // Generar 3D
-                GeneradorCodigo3D generador = new GeneradorCodigo3D();
-                String codigo3D = generador.generar(raiz);
-                System.out.println("\nCódigo 3D generado:\n" + codigo3D);
-                guardarEnArchivo("codigoTresDirecciones.txt", codigo3D);
-                System.out.println("Código 3D guardado en: codigoTresDirecciones.txt");
+                if (!semantico.hayErrores()) {
+                    // Generar Intermedio
+                    GeneradorCodigoIntermedio generador = new GeneradorCodigoIntermedio();
+                    String codigoIntermedio = generador.generar(raiz);
+                    System.out.println("\nCódigo Intermedio generado:\n" + codigoIntermedio);
+                    guardarEnArchivo("codigoTresDirecciones.txt", codigoIntermedio);
+                    System.out.println("Código Intermedio guardado en: codigoTresDirecciones.txt");
+                } else {
+                    System.out.println("\nNo se generó código intermedio debido a errores semánticos.");
+                }
+                
                 
             } else {
                 System.out.println("Nota: El resultado del parser no es un NodoArbol (es null o de otro tipo).");
