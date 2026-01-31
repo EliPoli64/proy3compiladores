@@ -49,17 +49,15 @@ public class Main {
                 guardarEnArchivo("arbol.txt", arbolContent);
                 System.out.println("Árbol sintáctico guardado en: arbol.txt");
 
-                // 7. Análisis Semántico
-                AnalizadorSemantico semantico = new AnalizadorSemantico(raiz, p.getTablaSimbolos());
-                semantico.analizar();
+                
 
-                if (!semantico.hayErrores()) {
+                if (!p.hayErrores()) {
                     // Generar Intermedio
-                    GeneradorCodigoIntermedio generador = new GeneradorCodigoIntermedio();
-                    String codigoIntermedio = generador.generar(raiz);
-                    System.out.println("\nCódigo Intermedio generado:\n" + codigoIntermedio);
-                    guardarEnArchivo("codigoTresDirecciones.txt", codigoIntermedio);
-                    System.out.println("Código Intermedio guardado en: codigoTresDirecciones.txt");
+                    // GeneradorCodigoIntermedio generador = new GeneradorCodigoIntermedio();
+                    // String codigoIntermedio = generador.generar(raiz);
+                    //System.out.println("\nCódigo Intermedio generado:\n" + codigoIntermedio);
+                    //guardarEnArchivo("codigoTresDirecciones.txt", codigoIntermedio);
+                    //System.out.println("Código Intermedio guardado en: codigoTresDirecciones.txt");
                 } else {
                     System.out.println("\nNo se generó código intermedio debido a errores semánticos.");
                 }

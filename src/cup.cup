@@ -7,9 +7,13 @@ action code {:
     HashMap<String, ArrayList<Simbolo>> listaTablasSimbolos = new HashMap<String, ArrayList<Simbolo>>();
     
     String currentScope = "Global"; // Ámbito actual
-    public boolean hayErrores = false;
     
     ArrayList<String> scopeStack = new ArrayList<String>();
+    
+    // Variables para análisis semántico
+    public boolean hayErroresSemanticos = false;
+    private String ambitoActualSemantico = "Global";
+    private String tipoRetornoFuncionActual = null;
     
     // Método para agregar un símbolo a la tabla del ámbito actual
     public void agregarSimbolo(String nombre, String tipo, String rol) {
@@ -17,20 +21,373 @@ action code {:
             listaTablasSimbolos.put(currentScope, new ArrayList<Simbolo>());
         }
         
-        // Verificar si ya existe en el ámbito actual para no duplicar (opcional, por ahora solo agregamos)
         ArrayList<Simbolo> simbolosScope = listaTablasSimbolos.get(currentScope);
         
         // Validacion simple de duplicados
         for(Simbolo s : simbolosScope){
             if(s.nombre.equals(nombre)){
-                System.err.println("Error: Simbolo '" + nombre + "' re-declarado en ambito " + currentScope);
-                hayErrores = true;
+                System.err.println("Error Semántico: Símbolo '" + nombre + "' ya declarado en ámbito " + currentScope);
+                hayErroresSemanticos = true;
                 return;
-                
             }
         }
         
         simbolosScope.add(new Simbolo(nombre, tipo, rol, currentScope));
+        System.out.println("Símbolo agregado: " + nombre + " [" + tipo + "] (" + rol + ") en " + currentScope);
+    }
+
+    // Métodos para análisis semántico
+    public void iniciarAnalisisSemantico(NodoArbol raiz) {
+        System.out.println("\nIniciando Análisis Semántico...\n");
+        if (raiz != null) {
+            procesarNodoSemantico(raiz);
+        }
+        System.out.println("\nAnálisis Semántico Finalizado.");
+    }
+    
+    private void procesarNodoSemantico(NodoArbol nodo) {
+        if (nodo == null) return;
+        
+        String tipoNodo = nodo.getTipo().trim();
+        
+        manejarCambioAmbito(nodo, tipoNodo);
+        validarIdentificador(nodo, tipoNodo);
+        verificarDeclaracionAsignacion(nodo, tipoNodo);
+        verificarAsignacionVariable(nodo, tipoNodo);
+        verificarRetornoFuncion(nodo, tipoNodo);
+        validarDeclaracionArreglo(nodo, tipoNodo);
+        
+        for (NodoArbol hijo : nodo.getHijos()) {
+            procesarNodoSemantico(hijo);
+        }
+        
+        // Restaurar ámbito si salimos de una función
+        if ((tipoNodo.equals("funcion") || tipoNodo.equals("funcion_vacia") || tipoNodo.equals("navidad")) && 
+            !ambitoActualSemantico.equals("Global")) {
+            ambitoActualSemantico = "Global";
+            tipoRetornoFuncionActual = null;
+        }
+    }
+    
+    private void manejarCambioAmbito(NodoArbol nodo, String tipoNodo) {
+        if (tipoNodo.equals("navidad")) {
+            ambitoActualSemantico = "navidad";
+            tipoRetornoFuncionActual = obtenerTipoFuncion(ambitoActualSemantico);
+        } else if (tipoNodo.equals("funcion")) {
+            if (nodo.getHijos().size() > 2) {
+                NodoArbol idNode = nodo.getHijos().get(2);
+                if (idNode.getTipo().trim().equals("IDENTIFIER")) {
+                    ambitoActualSemantico = idNode.getLexema().trim();
+                    tipoRetornoFuncionActual = obtenerTipoFuncion(ambitoActualSemantico);
+                    validarTipoRetornoFuncion();
+                }
+            }
+        } else if (tipoNodo.equals("funcion_vacia")) {
+            if (nodo.getHijos().size() > 0) {
+                NodoArbol idNode = nodo.getHijos().get(0);
+                if (idNode.getTipo().trim().equals("IDENTIFIER")) {
+                    ambitoActualSemantico = idNode.getLexema().trim();
+                    tipoRetornoFuncionActual = "void";
+                }
+            }
+        }
+    }
+    
+    private void validarTipoRetornoFuncion() {
+        String[] tiposValidos = {"void", "int", "float", "bool", "char"};
+        boolean esValido = false;
+        for (String tipo : tiposValidos) {
+            if (tipo.equals(tipoRetornoFuncionActual)) {
+                esValido = true;
+                break;
+            }
+        }
+        if (!esValido) {
+            reportarErrorSemantico("El tipo de retorno de la función debe ser INT, FLOAT, BOOL, CHAR o VOID");
+        }
+    }
+    
+    private void validarIdentificador(NodoArbol nodo, String tipoNodo) {
+        if (tipoNodo.equals("IDENTIFIER")) {
+            String nombre = nodo.getLexema().trim();
+            if (!existeIdentificador(nombre)) {
+                reportarErrorSemantico("Identificador '" + nombre + "' no declarado en ámbito '" + ambitoActualSemantico + "'");
+            }
+        }
+    }
+    
+    private void verificarDeclaracionAsignacion(NodoArbol nodo, String tipoNodo) {
+        if (!tipoNodo.equals("declaracionVariable_local_asign")) return;
+        
+        if (nodo.getHijos().size() > 4) {
+            String tipoVariable = nodo.getHijos().get(1).getLexema();
+            String tipoExpresion = determinarTipo(nodo.getHijos().get(4));
+            verificarTipos(tipoVariable, tipoExpresion, "Declaración con asignación");
+        }
+    }
+    
+    private void verificarAsignacionVariable(NodoArbol nodo, String tipoNodo) {
+        if (!tipoNodo.equals("=")) return;
+        
+        if (nodo.getHijos().size() > 1) {
+            String nombreVariable = nodo.getHijos().get(0).getLexema();
+            String tipoVariable = buscarTipoVariable(nombreVariable);
+            String tipoExpresion = determinarTipo(nodo.getHijos().get(1));
+            verificarTipos(tipoVariable, tipoExpresion, "Asignación a variable '" + nombreVariable + "'");
+        }
+    }
+    
+    private void verificarRetornoFuncion(NodoArbol nodo, String tipoNodo) {
+        if (!tipoNodo.equals("instruccion_return")) return;
+        
+        if (nodo.getHijos().size() > 1 && tipoRetornoFuncionActual != null) {
+            String tipoRetorno = determinarTipo(nodo.getHijos().get(1));
+            verificarTipos(tipoRetornoFuncionActual, tipoRetorno, "Retorno de función");
+        }
+    }
+    
+    private void validarDeclaracionArreglo(NodoArbol nodo, String tipoNodo) {
+        if (!tipoNodo.equals("declaracionArray_local_2d_init")) return;
+        
+        if (nodo.getHijos().size() > 4) {
+            String tipoArreglo = nodo.getHijos().get(1).getTipo();
+            if (!tipoArreglo.equals("INT") && !tipoArreglo.equals("CHAR")) {
+                reportarErrorSemantico("El tipo del arreglo debe ser INT o CHAR");
+            }
+        }
+    }
+    
+    private String determinarTipo(NodoArbol nodo) {
+        if (nodo == null) return "error";
+        
+        String tipoNodo = nodo.getTipo().trim();
+        String lexema = nodo.getLexema().trim();
+
+        switch (tipoNodo) {
+            case "int_literal": return "int";
+            case "float_literal": return "float";
+            case "bool_literal": return "bool";
+            case "string_literal": return "string";
+            case "char_literal": return "char";
+            case "IDENTIFIER": return buscarTipoVariable(lexema);
+            case "()": return procesarParentesis(nodo);
+            case "MINUS": return procesarMenosUnario(nodo);
+            case "++_pre": return procesarIncremento(nodo);
+            case "--_pre": return procesarDecremento(nodo);
+            default: return procesarOperadores(nodo, tipoNodo);
+        }
+    }
+
+    private String procesarIncremento(NodoArbol nodo) {
+        if (nodo.getHijos().size() == 1) {
+            NodoArbol hijo = nodo.getHijos().get(0);
+            String nombreVariable = hijo.getLexema();
+            String tipoVariable = buscarTipoVariable(nombreVariable);
+            
+            // Verificar que la variable exista
+            if (tipoVariable.equals("error")) {
+                reportarErrorSemantico("Variable '" + nombreVariable + "' no declarada para pre-incremento");
+                return "error";
+            }
+            
+            // Verificar que sea de tipo numérico
+            if (tipoVariable.equals("int") || tipoVariable.equals("float")) {
+                return tipoVariable;  // El tipo resultante es el mismo que la variable
+            } else {
+                reportarErrorSemantico("El pre-incremento '++' solo puede aplicarse a variables de tipo int o float, no a '" + tipoVariable + "'");
+                return "error";
+            }
+        }
+        return "error";
+    }
+
+    private String procesarDecremento(NodoArbol nodo) {
+        if (nodo.getHijos().size() == 1) {
+            NodoArbol hijo = nodo.getHijos().get(0);
+            String nombreVariable = hijo.getLexema();
+            String tipoVariable = buscarTipoVariable(nombreVariable);
+            
+            // Verificar que la variable exista
+            if (tipoVariable.equals("error")) {
+                reportarErrorSemantico("Variable '" + nombreVariable + "' no declarada para pre-decremento");
+                return "error";
+            }
+            
+            // Verificar que sea de tipo numérico
+            if (tipoVariable.equals("int") || tipoVariable.equals("float")) {
+                return tipoVariable;  // El tipo resultante es el mismo que la variable
+            } else {
+                reportarErrorSemantico("El pre-decremento '--' solo puede aplicarse a variables de tipo int o float, no a '" + tipoVariable + "'");
+                return "error";
+            }
+        }
+        return "error";
+    }
+
+    private String procesarMenosUnario(NodoArbol nodo) {
+        if (nodo.getHijos().size() == 1) {
+            NodoArbol hijo = nodo.getHijos().get(0);
+            String tipoHijo = determinarTipo(hijo);
+            
+            // Verificar si el hijo es un literal numérico
+            if (hijo.getTipo().trim().equals("int_literal")) {
+                // Es un literal entero negativo, el tipo sigue siendo int
+                return "int";
+            } else if (hijo.getTipo().trim().equals("float_literal")) {
+                // Es un literal float negativo, el tipo sigue siendo float
+                return "float";
+            } else if (tipoHijo.equals("int") || tipoHijo.equals("float")) {
+                // Es una variable o expresión de tipo numérico
+                return tipoHijo;
+            } else if (tipoHijo.equals("error")) {
+                return "error";
+            } else {
+                reportarErrorSemantico("El operador '-' unario solo puede aplicarse a tipos int o float, no a '" + tipoHijo + "'");
+                return "error";
+            }
+        }
+        return "error";
+    }
+    
+    private String procesarParentesis(NodoArbol nodo) {
+        return nodo.getHijos().size() > 1 ? determinarTipo(nodo.getHijos().get(1)) : "error";
+    }
+    
+    private String procesarOperadores(NodoArbol nodo, String tipoOperador) {
+        if (esOperadorAritmetico(tipoOperador) || esOperadorRelacional(tipoOperador)) {
+            return evaluarOperacion(nodo, tipoOperador);
+        }
+        return "desconocido";
+    }
+    
+    private String evaluarOperacion(NodoArbol nodo, String operador) {
+        if (nodo.getHijos().size() != 2) return "error";
+        String tipoIzq = determinarTipo(nodo.getHijos().get(0));
+        String tipoDer = determinarTipo(nodo.getHijos().get(1));
+        
+        if (tipoIzq.equals("error") || tipoDer.equals("error")) return "error";
+
+        
+        return esOperadorAritmetico(operador) 
+            ? evaluarOperacionAritmetica(operador, tipoIzq, tipoDer)
+            : evaluarOperacionRelacional(operador, tipoIzq, tipoDer);
+    }
+    
+    private String evaluarOperacionAritmetica(String operador, String tipoIzq, String tipoDer) {
+        if (operador.equals("+") && (tipoIzq.equals("string") || tipoDer.equals("string"))) {
+            return "string";
+        }
+
+        if (operador.equals("//")) {
+            if (tipoIzq.equals("int") && tipoDer.equals("int")) {
+                return "int";
+            } else {
+                reportarErrorSemantico("El operador de división entera '//' solo puede aplicarse a tipos int, no a '" + tipoIzq + "' y '" + tipoDer + "'");
+                return "error";
+            }
+        }
+
+        if (operador.equals("%")) {
+            if (tipoIzq.equals("int") && tipoDer.equals("int")) {
+                return "int";
+            } else {
+                reportarErrorSemantico("El operador módulo '%' solo puede aplicarse a tipos int, no a '" + tipoIzq + "' y '" + tipoDer + "'");
+                return "error";
+            }
+        }
+
+        if (operador.equals("/")) {
+            if ((tipoIzq.equals("int") || tipoIzq.equals("float")) && 
+                (tipoDer.equals("int") || tipoDer.equals("float"))) {
+                return "float"; // div normal devuelve float
+            } else {
+                reportarErrorSemantico("El operador de división flotante '/' solo puede aplicarse a tipos int o float, no a '" + tipoIzq + "' y '" + tipoDer + "'");
+                return "error";
+            }
+        }
+        if ((tipoIzq.equals("int") && tipoDer.equals("int")) || 
+            (tipoIzq.equals("float") && tipoDer.equals("float"))) {
+            return tipoIzq;
+        }
+        if ((tipoIzq.equals("int") && tipoDer.equals("float")) || 
+            (tipoIzq.equals("float") && tipoDer.equals("int"))) {
+            return "float";
+        }
+        
+        reportarErrorSemantico("Incompatibilidad de tipos en operación '" + operador + "': " + tipoIzq + " vs " + tipoDer);
+        return "error";
+    }
+    
+    private String evaluarOperacionRelacional(String operador, String tipoIzq, String tipoDer) {
+        if ((tipoIzq.equals("int") && tipoDer.equals("int")) || 
+            (tipoIzq.equals("float") && tipoDer.equals("float"))) {
+            return "bool";
+        }
+        
+        reportarErrorSemantico("Incompatibilidad de tipos en operación '" + operador + "': " + tipoIzq + " vs " + tipoDer);
+        return "error";
+    }
+    
+    private boolean esOperadorAritmetico(String tipo) {
+        return tipo.equals("+") || tipo.equals("-") || tipo.equals("*") || 
+            tipo.equals("/") || tipo.equals("//") || tipo.equals("%");
+    }
+    
+    private boolean esOperadorRelacional(String tipo) {
+        return tipo.equals(">") || tipo.equals(">=") || tipo.equals("<") || tipo.equals("<=");
+    }
+    
+    private String buscarTipoVariable(String nombre) {
+        String tipo = buscarEnAmbito(nombre, ambitoActualSemantico);
+        if (!tipo.equals("error") || ambitoActualSemantico.equals("Global")) return tipo;
+        
+        return buscarEnAmbito(nombre, "Global");
+    }
+    
+    private String buscarEnAmbito(String nombre, String ambito) {
+        if (!listaTablasSimbolos.containsKey(ambito)) return "error";
+        
+        for (Simbolo s : listaTablasSimbolos.get(ambito)) {
+            if (s.nombre.equals(nombre)) return s.tipo;
+        }
+        return "error";
+    }
+    
+    private boolean existeIdentificador(String nombre) {
+        if (buscarEnAmbito(nombre, ambitoActualSemantico).equals("error")) {
+            return ambitoActualSemantico.equals("Global") ? false : 
+                   buscarEnAmbito(nombre, "Global").equals("error") ? false : true;
+        }
+        return true;
+    }
+    
+    private void verificarTipos(String tipoEsperado, String tipoObtenido, String contexto) {
+        if (tipoEsperado.equals("error") || tipoObtenido.equals("error") || tipoObtenido.equals("desconocido")) return;
+        
+        boolean esCompatible = tipoEsperado.equals(tipoObtenido) || 
+                              (tipoEsperado.equals("float") && tipoObtenido.equals("int"));
+        
+        if (!esCompatible) {
+            reportarErrorSemantico(contexto + ": Se esperaba '" + tipoEsperado + "' pero se obtuvo '" + tipoObtenido + "'");
+        }
+    }
+    
+    private String obtenerTipoFuncion(String nombre) {
+        for (Simbolo s : listaTablasSimbolos.getOrDefault("Global", new ArrayList<Simbolo>())) {
+            if (s.nombre.equals(nombre) && s.rol.equalsIgnoreCase("Funcion")) {
+                return s.tipo;
+            }
+        }
+        if (nombre.equals("navidad")) {
+            return "void";
+        }
+        reportarErrorSemantico("Función '" + nombre + "' no encontrada en tabla de símbolos");
+        return "error";
+    }
+    
+    private void reportarErrorSemantico(String mensaje) {
+        System.err.println("Error Semántico: " + mensaje);
+        hayErroresSemanticos = true;
     }
 
     public void imprimirTablaSimbolos() {
@@ -66,16 +423,33 @@ action code {:
     public HashMap<String, ArrayList<Simbolo>> getListaTablasSimbolos() {
         return listaTablasSimbolos;
     }
+    
+    public boolean tieneErroresSemanticos() {
+        return hayErroresSemanticos;
+    }
 :};
 
 parser code {:
     LexerProyUno s;
+    public boolean hayErrores = false;
+    
     public parser(LexerProyUno s) {
         this.s = s;
         this.symbolFactory = new DefaultSymbolFactory();
     }
+    
     public boolean hayErrores() {
-        return action_obj.hayErrores;
+        return hayErrores;
+    }
+    
+    // Método para obtener errores semánticos (duplicados + otros)
+    public boolean tieneErroresSemanticos() {
+        return action_obj.tieneErroresSemanticos();
+    }
+    
+    // Método para ejecutar análisis semántico completo
+    public void ejecutarAnalisisSemantico(NodoArbol arbol) {
+        action_obj.iniciarAnalisisSemantico(arbol);
     }
 
     public void imprimirTablaSimbolos() {
@@ -180,6 +554,8 @@ program ::= globales:g funciones:f navidad:n {:
     if (g != null) result.agregarHijo((NodoArbol)g);
     if (f != null) result.agregarHijo((NodoArbol)f);
     if (n != null) result.agregarHijo((NodoArbol)n);
+    iniciarAnalisisSemantico(result);
+    
     RESULT = result;
 :};
 
@@ -205,7 +581,7 @@ globales ::= {:
           :}
           ;
 
-navidad ::= COAL NAVIDAD LPAREN RPAREN {: currentScope = "navidad"; :} LBRACKET listaInstr:li RETURN expression:e ENDL RBRACKET {:
+navidad ::= COAL NAVIDAD LPAREN RPAREN {: currentScope = "navidad"; :} LBRACKET listaInstr:li RETURN ENDL RBRACKET {:
                 NodoArbol result = new NodoArbol("navidad");
                 result.agregarHijo(new NodoArbol("COAL"));
                 result.agregarHijo(new NodoArbol("NAVIDAD"));
@@ -214,7 +590,6 @@ navidad ::= COAL NAVIDAD LPAREN RPAREN {: currentScope = "navidad"; :} LBRACKET 
                 result.agregarHijo(new NodoArbol("LBRACKET"));
                 result.agregarHijo((NodoArbol)li);
                 result.agregarHijo(new NodoArbol("RETURN"));
-                result.agregarHijo((NodoArbol)e);
                 result.agregarHijo(new NodoArbol("ENDL"));
                 result.agregarHijo(new NodoArbol("RBRACKET"));
                 currentScope = "Global";
@@ -739,6 +1114,11 @@ expression ::= expression:e1 PLUS expression:e2 {:
             | MINUS FLOAT_LITERAL:e1 {:
                 NodoArbol result = new NodoArbol("MINUS");
                 result.agregarHijo(new NodoArbol("float_literal", e1.toString()));
+                RESULT = result;
+            :} 
+            | MINUS IDENTIFIER:id {:
+                NodoArbol result = new NodoArbol("menos_variable");
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
                 RESULT = result;
             :}
             | INC IDENTIFIER:id {:
