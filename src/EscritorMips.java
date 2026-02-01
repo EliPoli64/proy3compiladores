@@ -235,6 +235,12 @@ public class EscritorMips {
             return;
         }
         
+        // Si es una variable no declarada, declararla automáticamente
+        if (esVariable(valor) && !stackOffsetMap.containsKey(valor)) {
+            asignarEspacioPila(valor);
+            out.println("    # Variable '" + valor + "' creada automáticamente");
+        }
+        
         // Determinar si es float
         boolean esFloatValor = valor.endsWith("_f") || esFloat(valor) || 
                             (stackOffsetMap.containsKey(valor) && esVariableFloat(valor));
@@ -779,20 +785,33 @@ public class EscritorMips {
                 // Manejar RETURN de funciones
                 procesarReturn(tokens);
             } else if (l.startsWith("IF NOT ")) {
-                String condicion = tokens.get(2);
-                String etiqueta = tokens.get(4);
-                cargarRegistroPila("$t0", condicion);
-                out.println("    beqz $t0, " + etiqueta);
+                String[] partes = linea.trim().split("\\s+");
+                String var = partes[2];
+                String label = partes[4];
+
+                int offsetVar = stackOffsetMap.get(var);
+
+                out.println("    # IF NOT " + var + " GOTO " + label);
+                out.println("    lw $t0, " + offsetVar + "($fp)");
+                out.println("    beq $t0, $zero, " + label);
             } else if (l.startsWith("IF ")) {
-                String condicion = tokens.get(1);
-                String etiqueta = tokens.get(3);
-                cargarRegistroPila("$t0", condicion);
-                out.println("    beqz $t0, " + etiqueta);
+                String[] partes = linea.trim().split("\\s+");
+                String var = partes[1];
+                String label = partes[3];
+
+                int offsetVar = stackOffsetMap.get(var);
+                out.println("    # IF " + var + " GOTO " + label);
+                out.println("    lw $t0, " + offsetVar + "($fp)");
+                out.println("    bnez $t0, " + label);
             } else if (l.startsWith("if ")) {
-                String condicion = tokens.get(1);
-                String etiqueta = tokens.get(3);
-                cargarRegistroPila("$t0", condicion);
-                out.println("    bnez $t0, " + etiqueta);
+                String[] partes = linea.trim().split("\\s+");
+                String var = partes[1];
+                String label = partes[3];
+
+                int offsetVar = stackOffsetMap.get(var);
+                out.println("    # IF " + var + " GOTO " + label);
+                out.println("    lw $t0, " + offsetVar + "($fp)");
+                out.println("    bnez $t0, " + label);
             } else if (l.contains(" = ")) {
                 procesarAsignacion(l, tokens);
             }
@@ -1155,7 +1174,19 @@ public class EscritorMips {
             out.println("    xori $t2, $t2, 1");
             guardarEnPila(destino, "$t2", false);
             
-        } else if (linea.contains(" >= ")) {
+        } else if (linea.contains(" = NOT ")) {
+            String[] partes = linea.trim().split("\\s+");
+            String destino2 = partes[0];
+            String origen = partes[3];
+
+            int offsetOrigen = stackOffsetMap.get(origen);
+            int offsetDestino = stackOffsetMap.get(destino2);
+
+            out.println("    # " + destino2 + " = NOT " + origen);
+            out.println("    lw $t0, " + offsetOrigen + "($fp)");
+            out.println("    seq $t1, $t0, $zero"); // Esta es la clave: 0->1, 1->0
+            out.println("    sw $t1, " + offsetDestino + "($fp)");
+        }else if (linea.contains(" >= ")) {
             String izquierda = tokens.get(2);
             String derecha = tokens.get(4);
             cargarRegistroPila("$t0", izquierda);
@@ -1250,7 +1281,7 @@ public class EscritorMips {
         } else if (linea.contains(" NOT ")) {
             String fuente = tokens.get(3);
             cargarRegistroPila("$t0", fuente);
-            out.println("    seq $t1, $t0, 1");
+            out.println("    seq $t1, $t0, $zero");
             guardarEnPila(destino, "$t1", false);
             
         } else if (tokens.size() == 3) {
