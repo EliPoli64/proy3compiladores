@@ -12,6 +12,7 @@ public class GeneradorCodigoIntermedio {
     private Stack<String> breakLabels;
     private HashMap<String, String> variables;
     private HashMap<String, String> stringConstants;
+    private boolean navidadEncontrado = false;
     private int tempCount = 0;
 
     private String nuevoTemporal() {
@@ -57,7 +58,14 @@ public class GeneradorCodigoIntermedio {
         
         // Reemplazar secuencias de escape
         str = str.replace("\\n", "\n").replace("\\t", "\t").replace("\\\"", "\"");
-        
+        if (stringConstants.containsValue(str)) {
+            // Buscar el label existente
+            for (String key : stringConstants.keySet()) {
+                if (stringConstants.get(key).equals(str)) {
+                    return key; // Retornar el label existente
+                }
+            }
+        }
         String label = "str_" + stringCounter;  // Prefijo 'str_' seguido del número
         stringConstants.put(label, str);        // Guardar con el label correcto
         codigoData.append("").append(label).append(" = \"").append(str).append("\"\n");
@@ -86,6 +94,7 @@ public class GeneradorCodigoIntermedio {
             }
 
             if (hijos.size() == 6 || hijos.size() == 7) {
+                variables.put(hijos.get(hijos.size() - 4).getLexema(), hijos.get(hijos.size() - 2).getLexema());
                 String valorInicial = hijos.get(hijos.size() - 2).getLexema();
                 String tipo = hijos.get(hijos.size() - 5).getLexema();
                 String identificador = hijos.get(hijos.size() - 4).getLexema();
@@ -98,6 +107,7 @@ public class GeneradorCodigoIntermedio {
                                 .append(valorInicial)
                                 .append("\n");
             } else {
+                variables.put(hijos.get(hijos.size() - 2).getLexema(), hijos.get(hijos.size() - 3).getLexema());
                 String tipo = hijos.get(hijos.size() - 3).getLexema();
                 String identificador = hijos.get(hijos.size() - 2).getLexema();
                 codigoIntermedio.append("GLOBAL ")
@@ -210,17 +220,24 @@ public class GeneradorCodigoIntermedio {
                 return "";
             case "function_call":
                 return procesarLlamadaFuncion(nodo);
+            case "EXIT":
+                return procesarExitWhen(nodo);
             case "funciones":
-                codigoIntermedio.append("GOTO navidad\n");
+                if (!navidadEncontrado) {
+                    codigoIntermedio.append("GOTO navidad\n");
+                    navidadEncontrado = true;
+                }
                 for (NodoArbol hijo : nodo.getHijos()) {
                     visitar(hijo);
                 }
+                
                 return "";
                 
             case "funcion":
                 return procesarFuncion(nodo);
                 
             case "navidad":
+                navidadEncontrado = true;
                 procesarNavidad(nodo);
                 return "";
                 
@@ -391,6 +408,10 @@ public class GeneradorCodigoIntermedio {
                     visitar(hijo);
                 }
                 return "";
+            case "GET":
+                procesarGet(nodo);
+                System.out.println("kjsbv get");
+                return "";
                 
             case "condicionDecide":
                 for (NodoArbol hijo : nodo.getHijos()) {
@@ -436,12 +457,10 @@ public class GeneradorCodigoIntermedio {
             case "GIFT":
             case "RETURN":
             case "SHOW":
-            case "GET":
             case "DECIDE":
             case "OF":
             case "END":
             case "LOOP":
-            case "EXIT":
             case "WHEN":
             case "FOR":
             case "BREAK":
@@ -458,6 +477,60 @@ public class GeneradorCodigoIntermedio {
                 }
                 return "";
         }
+    }
+    private String procesarGet(NodoArbol nodo) {
+        String variable = "";
+        
+        // Buscar identificador a leer (dentro de paréntesis)
+        for (NodoArbol hijo : nodo.getHijos()) {
+            if (hijo.getTipo().equals("IDENTIFIER")) {
+                variable = hijo.getLexema();
+                break;
+            } else if (hijo.getTipo().equals("()")) {
+                // Buscar dentro de los paréntesis
+                for (NodoArbol hijoParen : hijo.getHijos()) {
+                    if (hijoParen.getTipo().equals("IDENTIFIER")) {
+                        variable = hijoParen.getLexema();
+                        break;
+                    }
+                }
+            }
+        }
+        System.out.println("Variable en get encontrada: " + variable);
+        
+        if (!variable.isEmpty()) {
+            // Determinar el tipo de la variable para saber qué tipo de READ hacer
+            String tipoVariable = variables.get(variable);
+            
+            if (tipoVariable != null) {
+                switch (tipoVariable.toLowerCase()) {
+                    case "int":
+                        codigoIntermedio.append("   ").append("READINT ").append(variable).append("\n");
+                        break;
+                    case "float":
+                        codigoIntermedio.append("   ").append("READFLOAT ").append(variable).append("\n");
+                        break;
+                    case "char":
+                        codigoIntermedio.append("   ").append("READCHAR ").append(variable).append("\n");
+                        break;
+                    case "string":
+                        codigoIntermedio.append("   ").append("READSTRING ").append(variable).append("\n");
+                        break;
+                    case "bool":
+                        codigoIntermedio.append("   ").append("READBOOL ").append(variable).append("\n");
+                        break;
+                    default:
+                        // Por defecto asumimos int
+                        codigoIntermedio.append("   ").append("READ ").append(variable).append("\n");
+                        break;
+                }
+            } else {
+                // Si no conocemos el tipo, usar READ genérico
+                codigoIntermedio.append("   ").append("READ ").append(variable).append("\n");
+            }
+        }
+        
+        return variable;
     }
     
     private void procesarNavidad(NodoArbol nodo) {
@@ -476,7 +549,7 @@ public class GeneradorCodigoIntermedio {
         }
         
         // Si no hay return explícito, agregar uno
-        codigoIntermedio.append("   ").append("RETURN 0\n");
+        codigoIntermedio.append("   ").append("RETURN NAVIDAD\n");
         
     }
     private String generarOperacionBinariaDesdeArbol(NodoArbol nodo) {
@@ -858,7 +931,7 @@ public class GeneradorCodigoIntermedio {
         String variable = "";
         
         // Buscar identificador a leer
-        for (NodoArbol hijo : nodo.getHijos()) {
+        for (NodoArbol hijo : nodo.getHijos().get(0).getHijos()) {
             if (hijo.getTipo().equals("IDENTIFIER")) {
                 variable = hijo.getLexema();
                 break;
@@ -882,6 +955,11 @@ public class GeneradorCodigoIntermedio {
                 destino = hijo.getLexema();
                 break;
             }
+        }
+        if (nodo.getHijos().get(1).getTipo().equals("string_literal")) {
+            valor = registrarString(nodo.getHijos().get(1).getLexema());
+            codigoIntermedio.append("   ").append(destino).append(" = ").append(valor).append("\n");
+            return destino;
         }
         
         // Buscar valor (derecha del =)
@@ -1159,36 +1237,104 @@ public class GeneradorCodigoIntermedio {
         }
         return "";
     }
-
-    
-    private String procesarLoop(NodoArbol nodo) {
-        String startLabel = nuevaEtiqueta();
-        String exitLabel = nuevaEtiqueta();  // Para EXIT WHEN
-        String endLabel = nuevaEtiqueta();   // Para fin del loop
+    private String procesarExitWhen(NodoArbol nodo) {
+        String condicion = "";
         
-        breakLabels.push(endLabel);
-        
-        codigoIntermedio.append("   ").append(startLabel).append(":\n");
-        
-        // Procesar instrucciones del loop
+        // Buscar la condición del EXIT WHEN
         for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("listaInstr")) {
-                visitar(hijo);
+            if (hijo.getTipo().equals("WHEN")) {
+                // El siguiente hijo después de WHEN es la condición
+                int idx = nodo.getHijos().indexOf(hijo);
+                if (idx + 1 < nodo.getHijos().size()) {
+                    condicion = evaluarExpr(nodo.getHijos().get(idx + 1));
+                    break;
+                }
             }
         }
         
-        // Volver al inicio del loop
-        codigoIntermedio.append("   GOTO ").append(startLabel).append("\n");
+        if (!condicion.isEmpty()) {
+            // Generar código para evaluar la condición
+            String tempCond = nuevoTemporal();
+            codigoIntermedio.append("   ").append(tempCond).append(" = ").append(condicion).append("\n");
+            
+            // Si se cumple la condición, salir del loop
+            // Necesitamos la etiqueta de salida del loop actual
+            if (!breakLabels.isEmpty()) {
+                String exitLabel = "L_exit_" + breakLabels.size();  // Crear etiqueta única
+                codigoIntermedio.append("   IF ").append(tempCond).append(" GOTO ").append(exitLabel).append("\n");
+            }
+        }
         
-        // Etiqueta para EXIT WHEN (si se cumple la condición, salta aquí)
-        codigoIntermedio.append("   ").append(exitLabel).append(":\n");
-        
-        // Fin del loop
-        codigoIntermedio.append("   ").append(endLabel).append(":\n");
-        
-        breakLabels.pop();
         return "";
     }
+
+    
+    private String procesarLoop(NodoArbol nodo) {
+    String startLabel = nuevaEtiqueta();
+    String endLabel = nuevaEtiqueta();
+    System.out.println("Generando loop: start=" + startLabel + ", end=" + endLabel);
+    String exitWhenLabel = "L_exit_when_" + labelCounter++;
+    
+    breakLabels.push(endLabel);
+    
+    codigoIntermedio.append("   ").append(startLabel).append(":\n");
+    
+    // Buscar EXIT WHEN primero para procesar la condición
+    String condicionExit = "";
+    boolean tieneExitWhen = false;
+    
+    for (NodoArbol hijo : nodo.getHijos()) {
+        if (hijo.getTipo().equals("EXIT")) {
+            tieneExitWhen = true;
+            // Buscar condición del WHEN
+            for (NodoArbol exitHijo : hijo.getHijos()) {
+                if (exitHijo.getTipo().equals("WHEN")) {
+                    // Buscar la expresión de condición
+                    for (NodoArbol condHijo : exitHijo.getHijos()) {
+                        if (condHijo.getTipo().equals("()")) {
+                            for (NodoArbol expr : condHijo.getHijos()) {
+                                if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
+                                    condicionExit = evaluarExpr(expr);
+                                    break;
+                                }
+                            }
+                        } else if (!condHijo.getTipo().equals("WHEN") && 
+                                  !condHijo.getTipo().equals("ENDL")) {
+                            condicionExit = evaluarExpr(condHijo);
+                        }
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    
+    // Procesar el cuerpo del loop (listaInstr)
+    for (NodoArbol hijo : nodo.getHijos()) {
+        if (hijo.getTipo().equals("listaInstr")) {
+            visitar(hijo);
+        }
+    }
+    
+    // Si hay EXIT WHEN, generar la condición de salida
+    if (tieneExitWhen && !condicionExit.isEmpty()) {
+        String tempCond = nuevoTemporal();
+        codigoIntermedio.append("   ").append(tempCond).append(" = ").append(condicionExit).append("\n");
+        codigoIntermedio.append("   IF ").append(tempCond).append(" GOTO ").append(exitWhenLabel).append("\n");
+    }
+
+    // Etiqueta para salir con EXIT WHEN
+    if (tieneExitWhen) {
+        codigoIntermedio.append("   ").append(exitWhenLabel).append(":\n");
+    }
+    
+    // Etiqueta para BREAK
+    codigoIntermedio.append("   ").append(endLabel).append(":\n");
+    
+    breakLabels.pop();
+    return "";
+}
     
     private String procesarFor(NodoArbol nodo) {
         String startLabel = nuevaEtiqueta();
