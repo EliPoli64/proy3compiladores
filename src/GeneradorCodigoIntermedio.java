@@ -220,6 +220,7 @@ public class GeneradorCodigoIntermedio {
                 return "";
             case "function_call":
                 return procesarLlamadaFuncion(nodo);
+            
             case "funciones":
                 if (!navidadEncontrado) {
                     codigoIntermedio.append("GOTO navidad\n");
@@ -408,7 +409,6 @@ public class GeneradorCodigoIntermedio {
                 return "";
             case "GET":
                 procesarGet(nodo);
-                System.out.println("kjsbv get");
                 return "";
                 
             case "condicionDecide":
@@ -494,7 +494,6 @@ public class GeneradorCodigoIntermedio {
                 }
             }
         }
-        System.out.println("Variable en get encontrada: " + variable);
         
         if (!variable.isEmpty()) {
             // Determinar el tipo de la variable para saber qué tipo de READ hacer
@@ -555,7 +554,9 @@ public class GeneradorCodigoIntermedio {
         String operador = obtenerOperador(nodo.getTipo());
         String izquierda = "";
         String derecha = "";
-        
+        if (nodo.getTipo().equals("*")){
+            System.out.println("Generando operacion binaria * desde arbol");
+        }
         // Buscar operandos en los hijos
         for (NodoArbol hijo : nodo.getHijos()) {
             if (izquierda.isEmpty()) {
@@ -721,6 +722,9 @@ public class GeneradorCodigoIntermedio {
                         tipoActual = "";
                     }
                     break;
+                case "listaParametros":
+                    procesarListaParametros(hijo);
+                    break;
             }
         }
     }
@@ -750,37 +754,29 @@ public class GeneradorCodigoIntermedio {
                 case "char_literal":
                     valor = "'" + hijo.getLexema() + "'";
                     break;
-                case "MINUS":
-                    if (conAsignacion && hijo.getHijos().size() > 0) {
-                        NodoArbol valorHijo = hijo.getHijos().get(0);
-                        if (valorHijo.getTipo().endsWith("_literal")) {
-                            valor = "-" + valorHijo.getLexema();
-                        } else {
-                            valor = evaluarExpr(valorHijo);
-                        }
-                    }
-                    break;
-                case "function_call":
-                    if (conAsignacion) {
-                        valor = evaluarExpr(hijo);
-                    }
-                    break;
-
                 case "string_literal":
-                    valor = registrarString(hijo.getLexema());  // Ya retorna el label
+                    valor = registrarString(hijo.getLexema());
                     break;
             }
         }
         
         if (!nombre.isEmpty()) {
+            // Guardar tipo en mapa
             variables.put(nombre, tipo);
             
             if (conAsignacion && valor != null) {
-                String temp = nuevoTemporal();
-                codigoIntermedio.append("   ").append(temp).append(" = ").append(valor).append("\n");
-                codigoIntermedio.append("   ").append(nombre).append(" = ").append(temp).append("\n");
+                if (tipo.equals("float")) {
+                    String temp = nuevoTemporal() + "_f";
+                    codigoIntermedio.append("   ").append(temp).append(" = ").append(valor).append("\n");
+                    codigoIntermedio.append("   ").append(nombre).append(" = ").append(temp).append("\n");
+                } else {
+                    String temp = nuevoTemporal();
+                    codigoIntermedio.append("   ").append(temp).append(" = ").append(valor).append("\n");
+                    codigoIntermedio.append("   ").append(nombre).append(" = ").append(temp).append("\n");
+                }
             } else {
-                codigoIntermedio.append("   ").append("LOCAL ").append(nombre).append(" : ").append(tipo).append("\n");
+                codigoIntermedio.append("   ").append("LOCAL ").append(nombre)
+                            .append(" : ").append(tipo).append("\n");
             }
         }
         
@@ -965,19 +961,16 @@ public class GeneradorCodigoIntermedio {
             codigoIntermedio.append("   ").append(destino).append(" = ").append(valor).append("\n");
             return destino;
         }
+        if (nodo.getHijos().get(1).getTipo().equals("bool_literal")) {
+            valor = nodo.getHijos().get(1).getLexema();
+            codigoIntermedio.append("   ").append(destino).append(" = ").append(valor).append("\n");
+            return destino;
+        }
         
         // Buscar valor (derecha del =)
         // El valor puede ser una expresión compleja
-        for (int i = 0; i < nodo.getHijos().size(); i++) {
-            NodoArbol hijo = nodo.getHijos().get(i);
-            if (hijo.getTipo().equals("ASSIGN")) {
-                // El siguiente hijo después de ASSIGN es la expresión
-                if (i + 1 < nodo.getHijos().size()) {
-                    valor = evaluarExpr(nodo.getHijos().get(i + 1));
-                }
-                break;
-            }
-        }
+        
+        valor = evaluarExpr(nodo.getHijos().get(1));
         
         if (!destino.isEmpty() && !valor.isEmpty()) {
             codigoIntermedio.append("   ").append(destino).append(" = ").append(valor).append("\n");
@@ -1073,10 +1066,9 @@ public class GeneradorCodigoIntermedio {
                 }
 
                 codigoIntermedio.append("   CALL ")
-                                .append(nombreFuncion)
-                                .append(", ")
-                                .append(argumentos.size())
-                                .append("\n");
+                    .append(nombreFuncion)
+                    .append("\n");
+
 
                 String temp = nuevoTemporal();
                 codigoIntermedio.append("   ").append(temp).append(" = RET\n");
@@ -1089,6 +1081,7 @@ public class GeneradorCodigoIntermedio {
             case "-":
             case "*":
             case "/":
+                return generarOperacionBinariaConTipo(nodo, tipo);
             case "%":
             case "^":
             case "==":
@@ -1114,7 +1107,63 @@ public class GeneradorCodigoIntermedio {
                 return "";
         }
     }
+    private String convertirOperadorFloat(String operador) {
+        switch (operador) {
+            case "+": return "+";
+            case "-": return "-";
+            case "*": return "*";
+            case "/": return "/";
+            default: return operador;
+        }
+    }
 
+    private String removerSufijoFloat(String valor) {
+        if (valor.endsWith("_f")) {
+            return valor.substring(0, valor.length() - 2);
+        }
+        return valor;
+    }
+
+    private boolean esVariableFloat(String nombre) {
+        // Heurísticas para identificar variables float
+        if (variables.containsKey(nombre)) {
+            return variables.get(nombre).equalsIgnoreCase("float");
+        }
+        return nombre.toLowerCase().contains("float") || 
+            nombre.toLowerCase().contains("_f") ||
+            nombre.toLowerCase().contains("base") ||
+            nombre.toLowerCase().contains("resultado");
+    }
+    private String generarOperacionBinariaConTipo(NodoArbol nodo, String operador) {
+        if (nodo.getHijos().size() >= 2) {
+            String izquierda = evaluarExpr(nodo.getHijos().get(0));
+            String derecha = evaluarExpr(nodo.getHijos().get(1));
+            
+            // Determinar tipos de los operandos
+            boolean izqEsFloat = izquierda.endsWith("_f") || esVariableFloat(izquierda);
+            boolean derEsFloat = derecha.endsWith("_f") || esVariableFloat(derecha);
+            
+            String temp = nuevoTemporal();
+            
+            if (izqEsFloat || derEsFloat) {
+                // Operación de punto flotante
+                String opFloat = convertirOperadorFloat(operador);
+                codigoIntermedio.append("   ").append(temp).append("_f = ")
+                            .append(removerSufijoFloat(izquierda)).append(" ")
+                            .append(opFloat).append(" ")
+                            .append(derecha).append("\n");
+                return temp + "_f";
+            } else {
+                // Operación entera
+                codigoIntermedio.append("   ").append(temp).append(" = ")
+                            .append(izquierda).append(" ")
+                            .append(operador).append(" ")
+                            .append(derecha).append("\n");
+                return temp;
+            }
+        }
+        return "";
+    }
 
     private String procesarAsignacionArray(NodoArbol nodo) {
         String arrayAccess = "";
@@ -1350,86 +1399,65 @@ public class GeneradorCodigoIntermedio {
         }
         return "";
     }
-    private String procesarExitWhen(NodoArbol nodo) {
-        String condicion = "";
-        System.out.println("exit nodo "+nodo.getTipo());
-        
-        // Buscar la condición del EXIT WHEN
-        for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("WHEN")) {
-
-                // El siguiente hijo después de WHEN es la condición
-                int idx = nodo.getHijos().indexOf(hijo);
-                if (idx + 1 < nodo.getHijos().size()) {
-                    condicion = evaluarExpr(nodo.getHijos().get(idx + 1));
-                    break;
-                }
-            }
-        }
-        
-        if (!condicion.isEmpty()) {
-            // Generar código para evaluar la condición
-            String tempCond = nuevoTemporal();
-            codigoIntermedio.append("   ").append(tempCond).append(" = ").append(condicion).append("\n");
-            
-            // Si se cumple la condición, salir del loop
-            // Necesitamos la etiqueta de salida del loop actual
-            if (!breakLabels.isEmpty()) {
-                String exitLabel = "L_exit_" + breakLabels.size();  // Crear etiqueta única
-                codigoIntermedio.append("   IF ").append(tempCond).append(" GOTO ").append(exitLabel).append("\n");
-            }
-        }
-        
-        return "";
-    }
-
     
     private String procesarLoop(NodoArbol nodo) {
         String startLabel = nuevaEtiqueta();
         String endLabel = nuevaEtiqueta();
-        System.out.println("Generando loop: start=" + startLabel + ", end=" + endLabel);
+        
+        // Etiqueta especial para EXIT WHEN
         String exitWhenLabel = "L_exit_when_" + labelCounter++;
         
+        // Guardar la etiqueta de fin para BREAK
         breakLabels.push(endLabel);
-        
+
+        // Inicio del loop
         codigoIntermedio.append("   ").append(startLabel).append(":\n");
         
-        // Buscar EXIT WHEN primero para procesar la condición
-        String condicionExit = "";
+        // Buscar y procesar el cuerpo del loop
+        NodoArbol cuerpoLoop = null;
         boolean tieneExitWhen = false;
+        String condicionExit = "";
         
+        // Primero buscar el cuerpo del loop
         for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("EXIT")) {
+            if (hijo.getTipo().equals("listaInstr")) {
+                cuerpoLoop = hijo;
+            }
+            if (hijo.getTipo().equals("()")) {
                 tieneExitWhen = true;
-                System.out.println("Encontrado EXIT WHEN");
-                // Buscar condición del WHEN
-            } if (hijo.getTipo().equals("()") && tieneExitWhen) {
+            }
+                    
+        }
+        
+        // Ahora procesar el cuerpo buscando EXIT WHEN
+        if (cuerpoLoop != null) {
+            // Crear una copia de los hijos para procesar
+            List<NodoArbol> hijosCuerpo = new ArrayList<>(cuerpoLoop.getHijos());
+            
+            for (NodoArbol instruccion : hijosCuerpo) {
+                visitar(instruccion);
+            }
+        }
+        for (NodoArbol hijo : nodo.getHijos()) {
+            if (hijo.getTipo().equals("()")) {
+                // Extraer la condición de EXIT WHEN
                 for (NodoArbol expr : hijo.getHijos()) {
                     if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
-                        System.out.println(expr.getTipo());
                         condicionExit = evaluarExpr(expr);
                         break;
                     }
                 }
-
             }
         }
-
-    
-        // Procesar el cuerpo del loop (listaInstr)
-        for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("listaInstr")) {
-                visitar(hijo);
-            }
-        }
-        
-        // Si hay EXIT WHEN, generar la condición de salida
-        if (tieneExitWhen && !condicionExit.isEmpty()) {
+        if (tieneExitWhen) {
             String tempCond = nuevoTemporal();
             codigoIntermedio.append("   ").append(tempCond).append(" = ").append(condicionExit).append("\n");
             codigoIntermedio.append("   IF ").append(tempCond).append(" GOTO ").append(exitWhenLabel).append("\n");
         }
-
+        
+        // Al final del cuerpo del loop, volver al inicio
+        codigoIntermedio.append("   GOTO ").append(startLabel).append("\n");
+        
         // Etiqueta para salir con EXIT WHEN
         if (tieneExitWhen) {
             codigoIntermedio.append("   ").append(exitWhenLabel).append(":\n");
@@ -1438,7 +1466,9 @@ public class GeneradorCodigoIntermedio {
         // Etiqueta para BREAK
         codigoIntermedio.append("   ").append(endLabel).append(":\n");
         
+        // Quitar la etiqueta de break de la pila
         breakLabels.pop();
+        
         return "";
     }
     
@@ -1460,7 +1490,7 @@ public class GeneradorCodigoIntermedio {
             } else if (hijo.getTipo().equals(">=") || hijo.getTipo().equals(">") || 
                     hijo.getTipo().equals("<=") || hijo.getTipo().equals("<")) {
                 condNode = hijo;
-            } else if (hijo.getTipo().equals("--_pre")) {
+            } else if (hijo.getTipo().equals("--_pre") || hijo.getTipo().equals("++_pre")) {
                 incNode = hijo;
             } else if (hijo.getTipo().equals("bloque")) {
                 bloqueNode = hijo;
@@ -1479,7 +1509,7 @@ public class GeneradorCodigoIntermedio {
         // Cuerpo del for
         codigoIntermedio.append("   ").append(startLabel).append(":\n");
         if (bloqueNode != null) {
-            visitar(bloqueNode);
+            visitar(bloqueNode.getHijos().get(1));
         }
         
         // Incremento
