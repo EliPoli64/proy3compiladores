@@ -1009,6 +1009,24 @@ for_stmt ::= FOR LPAREN declaracionVariable:e1 ENDL expression:e2 ENDL expressio
                 RESULT = result;
           :};
 
+llamadaFuncion ::= IDENTIFIER:id LPAREN RPAREN {:
+                NodoArbol result = new NodoArbol("function_call");
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                result.agregarHijo(new NodoArbol("RPAREN"));
+                RESULT = result;
+            :}
+            | IDENTIFIER:id LPAREN listaArgumentos:args RPAREN {:
+                NodoArbol result = new NodoArbol("function_call");
+                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
+                result.agregarHijo(new NodoArbol("LPAREN"));
+                if (args != null) {
+                    result.agregarHijo((NodoArbol)args);
+                }
+                result.agregarHijo(new NodoArbol("RPAREN"));
+                RESULT = result;
+            :};
+
 expression ::= expression:e1 PLUS expression:e2 {:
                 NodoArbol hijoIzq = (NodoArbol)e1;
                 NodoArbol hijoDer = (NodoArbol)e2;
@@ -1204,8 +1222,14 @@ expression ::= expression:e1 PLUS expression:e2 {:
                 NodoArbol result = new NodoArbol("IDENTIFIER", id.toString());
                 RESULT = result;
             :}
-            | usoArray
-            | llamadaFuncion
+            | usoArray:ua {:
+                NodoArbol result = (NodoArbol)ua;
+                RESULT = ua;
+            :}
+            | llamadaFuncion:lf {:
+                NodoArbol result = (NodoArbol)lf;
+                RESULT = lf;
+            :}
             | GET LPAREN RPAREN {:
                 NodoArbol result = new NodoArbol("read_expression");
                 result.agregarHijo(new NodoArbol("GET"));
@@ -1224,24 +1248,6 @@ usoArray ::= IDENTIFIER:id DECLBRACKETL expression:expr1 DECLBRACKETR DECLBRACKE
                 result.agregarHijo(new NodoArbol("DECLBRACKETL"));
                 result.agregarHijo((NodoArbol)expr2);
                 result.agregarHijo(new NodoArbol("DECLBRACKETR"));
-                RESULT = result;
-            :};
-
-llamadaFuncion ::= IDENTIFIER:id LPAREN RPAREN {:
-                NodoArbol result = new NodoArbol("function_call");
-                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("LPAREN"));
-                result.agregarHijo(new NodoArbol("RPAREN"));
-                RESULT = result;
-            :}
-            | IDENTIFIER:id LPAREN listaArgumentos:args RPAREN {:
-                NodoArbol result = new NodoArbol("function_call");
-                result.agregarHijo(new NodoArbol("IDENTIFIER", id.toString()));
-                result.agregarHijo(new NodoArbol("LPAREN"));
-                if (args != null) {
-                    result.agregarHijo((NodoArbol)args);
-                }
-                result.agregarHijo(new NodoArbol("RPAREN"));
                 RESULT = result;
             :};
 
