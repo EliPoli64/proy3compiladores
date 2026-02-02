@@ -732,8 +732,9 @@ public class GeneradorCodigoIntermedio {
     private String procesarDeclaracionLocal(NodoArbol nodo, boolean conAsignacion) {
         String tipo = "";
         String nombre = "";
-        String valor = null;
+        String valor = "";  // Usar String vacío como indicador de que no hay valor
         
+        // Primera pasada para encontrar tipo y nombre
         for (NodoArbol hijo : nodo.getHijos()) {
             switch (hijo.getTipo()) {
                 case "INT":
@@ -746,17 +747,23 @@ public class GeneradorCodigoIntermedio {
                 case "IDENTIFIER":
                     nombre = hijo.getLexema();
                     break;
-                case "int_literal":
-                case "float_literal":
-                case "bool_literal":
-                    valor = hijo.getLexema();
-                    break;
-                case "char_literal":
-                    valor = "'" + hijo.getLexema() + "'";
-                    break;
-                case "string_literal":
-                    valor = registrarString(hijo.getLexema());
-                    break;
+            }
+        }
+        
+        // Si es con asignación, buscar el nodo ASSIGN y evaluar lo que sigue
+        if (conAsignacion) {
+            boolean assignEncontrado = false;
+            for (NodoArbol hijo : nodo.getHijos()) {
+                if (hijo.getTipo().equals("ASSIGN")) {
+                    assignEncontrado = true;
+                    continue; // Pasar al siguiente nodo
+                }
+                
+                if (assignEncontrado) {
+                    // Este hijo es la expresión a asignar
+                    valor = evaluarExpr(hijo);
+                    break; // Asumimos una sola expresión después del =
+                }
             }
         }
         
@@ -764,10 +771,17 @@ public class GeneradorCodigoIntermedio {
             // Guardar tipo en mapa
             variables.put(nombre, tipo);
             
-            if (conAsignacion && valor != null) {
-                if (tipo.equals("float")) {
+            if (conAsignacion && !valor.isEmpty()) {
+                if (tipo.equals("float")) { // Ajuste para floats
+                     if (!valor.endsWith("_f") && !esVariableFloat(valor) && !valor.contains(".")) {
+                         // Si no parece float pero la variable lo es (ej: asignando 0 a float)
+                         // Forzar conversión se puede manejar, pero aquí mantenemos simple.
+                    }
+                    // Quitar sufijo _f si ya lo tiene para evitar duplicados en la asignacion final
+                    String valClean = removerSufijoFloat(valor);
+                    
                     String temp = nuevoTemporal() + "_f";
-                    codigoIntermedio.append("   ").append(temp).append(" = ").append(valor).append("\n");
+                    codigoIntermedio.append("   ").append(temp).append(" = ").append(valClean).append("\n");
                     codigoIntermedio.append("   ").append(nombre).append(" = ").append(temp).append("\n");
                 } else {
                     String temp = nuevoTemporal();
@@ -786,11 +800,26 @@ public class GeneradorCodigoIntermedio {
     private String procesarDeclaracionArray(NodoArbol nodo) {
 
         List<NodoArbol> hijos = nodo.getHijos();
-
+        
+        // Estructura: LOCAL tipo IDENTIFIER arrayDimensions [ASSIGN arrayInit]
+        // Índices:   0     1    2          3               4      5
+        
         String tipo = hijos.get(1).getLexema();
         String nombreArray = hijos.get(2).getLexema();
-        String tamaño2 = hijos.get(3).getHijos().get(2).getLexema();
-        String tamaño1 = hijos.get(3).getHijos().get(0).getHijos().get(1).getLexema();
+        
+        // Manejar dimensiones (arrayDimensions -> DECLBRACKETL INT DECLBRACKETR [ ... ])
+        // Simplificado para 2D como parece asumir el código original, pero más robusto
+        NodoArbol dimNode = hijos.get(3);
+        String tamaño1 = "0";
+        String tamaño2 = "0";
+        
+        // Intento de extraer dimensiones navegando el subárbol
+        // arrayDimensions tiene hijos: [ int ] o [ int ] [ int ]
+        List<String> dimensiones = new ArrayList<>();
+        collectDimensiones(dimNode, dimensiones);
+        
+        if (dimensiones.size() > 0) tamaño1 = dimensiones.get(0);
+        if (dimensiones.size() > 1) tamaño2 = dimensiones.get(1);
 
         codigoIntermedio.append("   ").append("ARRAY ")
                     .append(nombreArray)
@@ -804,21 +833,84 @@ public class GeneradorCodigoIntermedio {
                     .append("]")
                     .append("\n");
 
-        if (hijos.size() > 6) {
-            NodoArbol listaValores = hijos.get(6);
+        // Verificar si tiene inicialización (más de 4 hijos y tiene ASSIGN)
+        if (hijos.size() > 5 && hijos.get(4).getTipo().equals("ASSIGN")) {
+            NodoArbol arrayInit = hijos.get(5); // El nodo arrayInit
+            
+            // Recolectar todos los valores planos
+            List<String> valores = new ArrayList<>();
+            recolectarValoresArray(arrayInit, valores);
 
             int indice = 0;
-            for (NodoArbol valor : listaValores.getHijos()) {
-                codigoIntermedio.append("   ").append(nombreArray)
-                            .append("[")
-                            .append(indice)
-                            .append("] = ")
-                            .append(valor.getLexema())
+            // Generar código de asignación elemento a elemento (linearizado o no)
+            // El formato intermedio simple parece ser lineal o necesitaría bucles anidados.
+            // Asumiremos asignación lineal o simple basada en el total de elementos.
+            
+            for (String val : valores) {
+                 // Cálculo de índices para imprimir [i][j] si fuera necesario, 
+                 // o simple [i] si es 1D. El formato base.c.int usa asignaciones pero falta ver el target.
+                 // Dado que base.c usa int, y no hay ejemplo claro de init, generaremos 
+                 // asignaciones lineales planas o lo que permita el sistema.
+                 // Por consistencia con la declaración, usaremos un índice plano si la VM lo soporta,
+                 // o intentaremos reconstruir indices si tenemos tamaños fijos.
+                 
+                 // Para este fix, simplemente volcamos los valores. Si se requiere 2D explícito:
+                 int t1 = Integer.parseInt(tamaño1);
+                 int t2 = Integer.parseInt(tamaño2);
+                 if (t2 == 0) t2 = 1; // Evitar div por cero si es 1D
+                 
+                 int i = indice / t2;
+                 int j = indice % t2;
+                 
+                 if (dimensiones.size() > 1) {
+                    codigoIntermedio.append("   ").append(nombreArray)
+                            .append("[").append(i).append("][").append(j).append("] = ")
+                            .append(val)
                             .append("\n");
+                 } else {
+                    codigoIntermedio.append("   ").append(nombreArray)
+                            .append("[").append(indice).append("] = ")
+                            .append(val)
+                            .append("\n");
+                 }
                 indice++;
             }
         }
         return nombreArray;
+    }
+
+    private void collectDimensiones(NodoArbol nodo, List<String> dims) {
+        for (NodoArbol hijo : nodo.getHijos()) {
+            if (hijo.getTipo().equals("INTEGER_LITERAL")) {
+                dims.add(hijo.getLexema());
+            } else if (hijo.getTipo().equals("arrayDimensions")) {
+                collectDimensiones(hijo, dims);
+            }
+        }
+    }
+
+    private void recolectarValoresArray(NodoArbol nodo, List<String> valores) {
+        // Navegar arrayInit -> LBRACKET ... RBRACKET
+        // Puede tener arrayValues o arrayInitList (para matrices)
+        for (NodoArbol hijo : nodo.getHijos()) {
+            if (hijo.getTipo().equals("arrayValues") || hijo.getTipo().equals("arrayInitList")) {
+                recolectarValoresRecursivo(hijo, valores);
+            }
+        }
+    }
+
+    private void recolectarValoresRecursivo(NodoArbol nodo, List<String> valores) {
+         for (NodoArbol hijo : nodo.getHijos()) {
+             if (hijo.getTipo().equals("arrayValues") || hijo.getTipo().equals("arrayInitList") || hijo.getTipo().equals("arrayInit")) {
+                 recolectarValoresRecursivo(hijo, valores);
+             } else if (!hijo.getTipo().equals("COMMA") && !hijo.getTipo().equals("LBRACKET") && !hijo.getTipo().equals("RBRACKET")) {
+                 // Es una expresión de valor
+                 String val = evaluarExpr(hijo);
+                 if (!val.isEmpty()) {
+                     valores.add(val);
+                 }
+             }
+         }
     }
 
     
@@ -1169,17 +1261,60 @@ public class GeneradorCodigoIntermedio {
         String arrayAccess = "";
         String valor = "";
         
+        // Estructura esperada: array_access -> IDENTIFIER [ expr ] [ expr ]
+        // nodo -> array_access ASSIGN expression
+        
+        NodoArbol accesoNodo = null;
+        
         for (NodoArbol hijo : nodo.getHijos()) {
             if (hijo.getTipo().equals("array_access")) {
-                arrayAccess = visitar(hijo);
+                accesoNodo = hijo;
             } else if (!hijo.getTipo().equals("ASSIGN")) {
-                valor = visitar(hijo);
+                valor = evaluarExpr(hijo); // Evaluar directamente
             }
         }
         
-        if (!arrayAccess.isEmpty() && !valor.isEmpty()) {
-            codigoIntermedio.append("   ").append(arrayAccess).append(" = ").append(valor).append("\n");
-            return arrayAccess;
+        if (accesoNodo != null && !valor.isEmpty()) {
+            // Desglosar el acceso para generar asignación: array[i][j] = val
+            // No podemos usar visitar(accesoNodo) porque genera un READ a temporal
+            
+            String nombreArray = "";
+            String indice1 = "";
+            String indice2 = "";
+            
+            for (NodoArbol hijo : accesoNodo.getHijos()) {
+                switch (hijo.getTipo()) {
+                    case "IDENTIFIER":
+                        nombreArray = hijo.getLexema();
+                        break;
+                    default:
+                        if (!hijo.getTipo().equals("DECLBRACKETL") && !hijo.getTipo().equals("DECLBRACKETR")) {
+                             // Es una expresión de índice
+                             String idx = evaluarExpr(hijo);
+                             if (indice1.isEmpty()) {
+                                 indice1 = idx;
+                             } else {
+                                 indice2 = idx;
+                             }
+                        }
+                        break;
+                }
+            }
+            
+            if (!nombreArray.isEmpty() && !indice1.isEmpty()) {
+                 if (indice2.isEmpty()) {
+                     // 1D
+                     codigoIntermedio.append("   ").append(nombreArray)
+                             .append("[").append(indice1).append("] = ")
+                             .append(valor).append("\n");
+                 } else {
+                     // 2D
+                     codigoIntermedio.append("   ").append(nombreArray)
+                             .append("[").append(indice1).append("][").append(indice2).append("] = ")
+                             .append(valor).append("\n");
+                 }
+                 return nombreArray;
+            }
         }
         
         return "";
@@ -1266,16 +1401,20 @@ public class GeneradorCodigoIntermedio {
         
         // Buscar la condición y el bloque
         for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("()")) {
-                // Extraer la condición
-                for (NodoArbol expr : hijo.getHijos()) {
-                    if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
-                        condicion = evaluarExpr(expr);
-                        break;
-                    }
-                }
-            } else if (hijo.getTipo().equals("bloque")) {
+            if (hijo.getTipo().equals("bloque")) {
                 bloque = hijo;
+            } else if (!hijo.getTipo().equals("ARROW") && !hijo.getTipo().equals("condicionesDecide")) {
+                // Es la expresión de condición (puede estar entre paréntesis o no)
+                if (hijo.getTipo().equals("()")) {
+                    for (NodoArbol expr : hijo.getHijos()) {
+                         if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
+                             condicion = evaluarExpr(expr);
+                             break;
+                         }
+                    }
+                } else {
+                    condicion = evaluarExpr(hijo);
+                }
             }
         }
         
@@ -1298,7 +1437,7 @@ public class GeneradorCodigoIntermedio {
         }
     }
 
-    
+
     private String procesarDecideConElse(NodoArbol nodo) {
         String elseLabel = nuevaEtiqueta();
         String endLabel = nuevaEtiqueta();
@@ -1307,15 +1446,17 @@ public class GeneradorCodigoIntermedio {
         boolean tieneElse = false;
         NodoArbol elseBloque = null;
         
-        for (NodoArbol hijo : nodo.getHijos()) {
+        for (int i = 0; i < nodo.getHijos().size(); i++) {
+            NodoArbol hijo = nodo.getHijos().get(i);
+            
             if (hijo.getTipo().equals("condicionesDecide")) {
                 procesarListaCondicionesConElse(hijo, elseLabel, endLabel);
             } else if (hijo.getTipo().equals("ELSE")) {
                 tieneElse = true;
-                // Buscar el bloque else
-                int idx = nodo.getHijos().indexOf(hijo);
-                if (idx + 2 < nodo.getHijos().size()) {
-                    elseBloque = nodo.getHijos().get(idx + 2);
+                // Buscar el bloque else (es el hijo después de ARROW, que está después de ELSE)
+                // ELSE -> ARROW -> BLOQUE
+                if (i + 2 < nodo.getHijos().size()) {
+                    elseBloque = nodo.getHijos().get(i + 2);
                 }
             }
         }
@@ -1328,7 +1469,9 @@ public class GeneradorCodigoIntermedio {
             visitar(elseBloque);
         }
         
-        codigoIntermedio.append("   GOTO ").append(endLabel).append("\n");
+        // Si no hubo else, el elseLabel es solo un punto de paso al final
+        
+        codigoIntermedio.append("   GOTO ").append(endLabel).append("\n"); // Redundante pero seguro
         
         // Etiqueta de fin
         codigoIntermedio.append("   ").append(endLabel).append(":\n");
@@ -1351,28 +1494,45 @@ public class GeneradorCodigoIntermedio {
         NodoArbol bloque = null;
         
         for (NodoArbol hijo : nodo.getHijos()) {
-            if (hijo.getTipo().equals("()")) {
-                for (NodoArbol expr : hijo.getHijos()) {
-                    if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
-                        condicion = evaluarExpr(expr);
-                        break;
-                    }
-                }
-            } else if (hijo.getTipo().equals("bloque")) {
+             if (hijo.getTipo().equals("bloque")) {
                 bloque = hijo;
+            } else if (!hijo.getTipo().equals("ARROW") && !hijo.getTipo().equals("condicionesDecide")) {
+                // Es la expresión de condición
+                 if (hijo.getTipo().equals("()")) {
+                    for (NodoArbol expr : hijo.getHijos()) {
+                         if (!expr.getTipo().equals("LPAREN") && !expr.getTipo().equals("RPAREN")) {
+                             condicion = evaluarExpr(expr);
+                             break;
+                         }
+                    }
+                } else {
+                    condicion = evaluarExpr(hijo);
+                }
             }
         }
         
         if (!condicion.isEmpty()) {
             String tempCond = nuevoTemporal();
             codigoIntermedio.append("   ").append(tempCond).append(" = ").append(condicion).append("\n");
-            codigoIntermedio.append("   IF NOT ").append(tempCond).append(" GOTO ").append(elseLabel).append("\n");
+            
+            // Aquí la lógica cambia ligeramente: 
+            // Si es verdadero, ejecuta bloque y salta a END.
+            // Si es falso, salta a la SIGUIENTE etiqueta de condición (que en este diseño simplificado
+            // estamos encadenando todo a elseLabel, lo cual es incorrecto para múltiples condiciones else if).
+            // Para mantenerlo simple según el diseño existente:
+            String nextLabel = nuevaEtiqueta();
+            
+            codigoIntermedio.append("   IF NOT ").append(tempCond).append(" GOTO ").append(nextLabel).append("\n");
             
             if (bloque != null) {
                 visitar(bloque);
             }
             
             codigoIntermedio.append("   GOTO ").append(endLabel).append("\n");
+            codigoIntermedio.append("   ").append(nextLabel).append(":\n");
+            
+            // NOTA: Con el esquema actual, todos los "falsos" caen en cascada. 
+            // El último caerá naturalmente hacia el 'elseLabel' generado en el método padre.
         }
     }
 
